@@ -1,0 +1,26 @@
+server:  
+  port: ${PORT:8081}
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/dark
+    username: postgres
+    password: admin
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    database: postgresql
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  servlet : 
+    multipart.max-file-size : 20MB
+    multipart.max-request-size: 20MB 
+     
+
+     
+deviceDir: /home/darks
+deviceDirUrl: http://localhost:8081/deviceDetails
+tetraDirUrl: http://localhost:8081/tetraDetails
