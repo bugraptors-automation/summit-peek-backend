@@ -6,11 +6,6 @@ package com.darks.config;
  */
 import java.util.List;
 import java.util.stream.Collectors;
-/**
- * @createdBy Er. Arundeep Randev
- * @since Feb-Mar 2025
- * @return ResponseEntity
- */
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
@@ -25,6 +20,11 @@ public class MockExceptionHandler {
 	
     private static final Logger logger = LoggerFactory.getLogger(MockExceptionHandler.class);
 
+    /**
+     * @createdBy Er. Arundeep Randev
+     * @since Feb-Mar 2025
+     * @return ResponseEntity
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<MockWrapper<Object>> handleValidationExceptions(MethodArgumentNotValidException ex) {
         List<String> errors = ex.getBindingResult()
