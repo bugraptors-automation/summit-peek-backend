@@ -1,9 +1,11 @@
 package com.darks.controller;
-
+/**
+ * @author Er. Arundeep Randev
+ * @since Feb-Mar 2025
+ *
+ */
 import java.util.List;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -19,12 +21,10 @@ import org.springframework.web.multipart.MultipartFile;
 import com.darks.config.MockWrapper;
 import com.darks.dto.FileNodesDto;
 import com.darks.dto.TransferRequestDto;
-import com.darks.model.TetraFileHistory;
 import com.darks.model.TransferRequest;
 import com.darks.service.TransferRequestService;
 import com.darks.utils.CommonUtils;
 
-import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.servlet.http.HttpServletRequest;
@@ -35,8 +35,6 @@ import jakarta.servlet.http.HttpServletRequest;
 public record TransferRequestController(TransferRequestService transferRequestService) {
 
 
-	 private static final long MAX_FILE_SIZE = 5 * 1024 * 1024;
-	 
 	/**
 	 * @createdBy Er. Arundeep Randev
 	 * @since Jan 2025
@@ -149,55 +147,17 @@ public record TransferRequestController(TransferRequestService transferRequestSe
 		
     	try {
     		
-    		 if (mockTransferFile.isEmpty()) {
-    	           
-    	       
-   	            return new ResponseEntity<>(new MockWrapper<>("Invalid file content", null,HttpStatus.BAD_REQUEST.value()), HttpStatus.BAD_REQUEST);
-    	     }
-    		 
-    		 if (mockTransferFile.getSize() > MAX_FILE_SIZE) {
-    			   
-    	        return new ResponseEntity<>(new MockWrapper<>("Payload too large", null,HttpStatus.PAYLOAD_TOO_LARGE.value()), HttpStatus.PAYLOAD_TOO_LARGE);
-
-    		 }
-
-    		 
-    		 String fileName = mockTransferFile.getOriginalFilename();
-    	     if (fileName != null /*&& !fileName.toLowerCase().endsWith(".csv") */&& !fileName.toLowerCase().endsWith(".xlsx")) {
+    	    if (!CommonUtils.validateCSVContent(mockTransferFile)) {
     	            
-    	          
-    	          return new ResponseEntity<>(new MockWrapper<>("Unsupported Media Type", null,HttpStatus.UNSUPPORTED_MEDIA_TYPE.value()), HttpStatus.UNSUPPORTED_MEDIA_TYPE);
-
-    	     }
-    	     
-    	     fileName = fileName.replaceAll("[^a-zA-Z0-9.-]", "_");
-
-    	      
-    	      if (!CommonUtils.validateCSVContent(mockTransferFile)) {
-    	            
-       	            return new ResponseEntity<>(new MockWrapper<>("Invalid file content", null,HttpStatus.BAD_REQUEST.value()), HttpStatus.BAD_REQUEST);
-    	       }
-    		
-    		FileNodesDto fileNodesDto = transferRequestService.mockTransferUpload(mockTransferFile);
+       	       return new ResponseEntity<>(new MockWrapper<FileNodesDto>("Invalid file content", null,HttpStatus.BAD_REQUEST.value()), HttpStatus.BAD_REQUEST);
+    	    }
+    		return transferRequestService.mockTransferUpload(mockTransferFile);
     	
-    		 if (fileNodesDto == null || fileNodesDto.getNodes() == null || fileNodesDto.getNodes().isEmpty()) {
-    	            return new ResponseEntity<>(new MockWrapper<>("File content is empty or invalid", null, HttpStatus.UNPROCESSABLE_ENTITY.value()), HttpStatus.UNPROCESSABLE_ENTITY);
-    	     }
-    		 
-            return new ResponseEntity<>(new MockWrapper<>("File generated successfully", fileNodesDto,HttpStatus.CREATED.value()), HttpStatus.CREATED);
-
-         
         } catch (IllegalArgumentException  e) {
-           
-            
-            return new ResponseEntity<>(new MockWrapper<>("Invalid data provided", null,HttpStatus.UNPROCESSABLE_ENTITY.value()), HttpStatus.UNPROCESSABLE_ENTITY);
+            return new ResponseEntity<>(new MockWrapper<FileNodesDto>("Invalid data provided", null,HttpStatus.UNPROCESSABLE_ENTITY.value()), HttpStatus.UNPROCESSABLE_ENTITY);
             
         } catch (Exception e) {
-            
-            
-            return new ResponseEntity<>(new MockWrapper<>("Internal server error", null,HttpStatus.INTERNAL_SERVER_ERROR.value()), HttpStatus.INTERNAL_SERVER_ERROR);
-
-
+            return new ResponseEntity<>(new MockWrapper<FileNodesDto>("Internal server error", null,HttpStatus.INTERNAL_SERVER_ERROR.value()), HttpStatus.INTERNAL_SERVER_ERROR);
         }
     	
     }

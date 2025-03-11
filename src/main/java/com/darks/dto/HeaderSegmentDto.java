@@ -1,4 +1,9 @@
 package com.darks.dto;
+/**
+ * @author Er. Arundeep Randev
+ * @since Jan-Mar 2025
+ *
+ */
 
 import java.sql.Date;
 

@@ -1,9 +1,23 @@
 package com.darks.utils;
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Random;
+import java.util.Set;
 
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.IndexedColors;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -13,13 +27,15 @@ import org.springframework.web.multipart.MultipartFile;
  */
 import com.darks.dto.FileNodesDto;
 import com.darks.dto.TradeInDTO;
+import com.darks.model.SerialInfo;
 import com.darks.model.StoFileHistory;
 import com.darks.model.TetraFileHistory;
+import com.darks.repository.SerialInfoRepository;
 import com.darks.repository.StoFileRepository;
 import com.darks.repository.TetraFileHistoryRepository;
 
 public class CommonUtils {
-
+	
 	/**
 	 * @createdBy Er. Arundeep Randev
 	 * @since Jan 2025
@@ -146,5 +162,15 @@ public class CommonUtils {
         }
         return true;
     }
-
+    
+    public static String validateSerial(String serialNo,SerialInfoRepository serialInfoRepository) {
+    	
+    	SerialInfo serialInfo = serialInfoRepository.findBySerialNumberOrderBySerialNumberDesc(serialNo);
+		String serialExists = "";
+    	if(serialInfo.getSerialNumber()!=null && !serialInfo.getSerialNumber().isEmpty()) {
+    		serialExists = serialInfo.getSerialNumber();
+    	}
+    	return serialExists;
+    }
+    
 }

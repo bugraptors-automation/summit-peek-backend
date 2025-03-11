@@ -1,6 +1,7 @@
 package com.darks.dto;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author Er. Arundeep Randev
@@ -19,7 +20,7 @@ public class FileNodesDto {
     private String stoFile;
     private String message;
     private int processedCount;
-    private int errorCount;
+    private AtomicInteger errorCount;
     
     private List<MockTransferDto> nodes;
     
@@ -102,11 +103,11 @@ public class FileNodesDto {
 	public void setProcessedCount(int processedCount) {
 		this.processedCount = processedCount;
 	}
-	public int getErrorCount() {
+	public AtomicInteger getErrorCount() {
 		return errorCount;
 	}
-	public void setErrorCount(int errorCount) {
+	public void setErrorCount(AtomicInteger errorCount) {
 		this.errorCount = errorCount;
 	}
-	
+
 }

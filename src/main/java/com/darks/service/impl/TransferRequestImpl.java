@@ -13,14 +13,23 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
 import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
@@ -31,10 +40,13 @@ import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.darks.config.MockWrapper;
 import com.darks.dto.FileNodesDto;
 import com.darks.dto.LineSegmentDto;
 import com.darks.dto.MockTransferDto;
@@ -48,14 +60,15 @@ import com.darks.model.SerialInfo;
 import com.darks.model.TetraConfig;
 import com.darks.model.TransferRequest;
 import com.darks.repository.AddressRepository;
-import com.darks.repository.StoFileRepository;
 import com.darks.repository.HeaderSegmentRepository;
 import com.darks.repository.LineSegmentRepository;
 import com.darks.repository.SerialInfoRepository;
+import com.darks.repository.StoFileRepository;
 import com.darks.repository.TetraConfigRepository;
 import com.darks.repository.TransferRequestRepository;
 import com.darks.service.TetraService;
 import com.darks.service.TransferRequestService;
+import com.darks.service.ValidatorService;
 import com.darks.utils.CommonUtils;
 import com.darks.utils.DateUtils;
 import com.fasterxml.jackson.core.exc.StreamWriteException;
@@ -84,9 +97,16 @@ public class TransferRequestImpl implements TransferRequestService {
     private static final String extXml = ".xml";
     private static final String catJson = "json";
     private static final String catXml = "xml";
+	 private static final long MAX_FILE_SIZE = 5 * 1024 * 1024;
+
     
     private static final String fName = "DeviceDetails_";
     private static final String folName = "device_details";
+    
+    //@Value("${app.maxRecordsPerFile:12}")
+    private int maxRecordsPerFile = 12; // Configurable record count per file
+
+    private static final int MAX_FILE_SIZES = 50000000; // max file size
     
     @Autowired
     private TransferRequestRepository transferReqRepository;
@@ -111,6 +131,9 @@ public class TransferRequestImpl implements TransferRequestService {
 	
 	@Autowired 
 	TetraService tetraService;
+	
+	@Autowired
+	ValidatorService validatorService;
 	
 	@Value("${deviceDir}")
 	private String deviceDir;
@@ -927,16 +950,50 @@ public class TransferRequestImpl implements TransferRequestService {
         return transferReqRepository.findTransferApiDtoBySerialNumber(serialNumber);
     }
 
-	@Override
-	public FileNodesDto mockTransferUpload(MultipartFile mockTransferFile) {
+	//@Override
+	public ResponseEntity<MockWrapper<FileNodesDto>> mockTransferUploadOld(MultipartFile mockTransferFile) {
 		FileNodesDto fileNodesDto = new FileNodesDto();
+		ResponseEntity<MockWrapper<FileNodesDto>> responseEntity = null;
         try {
-        	if (mockTransferFile != null && mockTransferFile.getBytes().length > 0) {
-        		String docName = mockTransferFile.getOriginalFilename();
-        	}
-            
         	InputStream file = mockTransferFile.getInputStream();
+        	
+        	if (mockTransferFile.isEmpty()) {
+ 	           
+     	       
+   	            return new ResponseEntity<>(new MockWrapper<>("Invalid file content", null,HttpStatus.BAD_REQUEST.value()), HttpStatus.BAD_REQUEST);
+    	     }
+    		 
+    		 if (mockTransferFile.getSize() > MAX_FILE_SIZE) {
+    			   
+    	        return new ResponseEntity<>(new MockWrapper<>("Payload too large", null,HttpStatus.PAYLOAD_TOO_LARGE.value()), HttpStatus.PAYLOAD_TOO_LARGE);
+
+    		 }
+        	if (mockTransferFile != null && mockTransferFile.getBytes().length > 0) {
+        		String fileName = mockTransferFile.getOriginalFilename();
+        		if (fileName != null && !fileName.toLowerCase().endsWith(".xlsx")) {
+    	            
+      	          return new ResponseEntity<>(new MockWrapper<>("Unsupported Media Type", null,HttpStatus.UNSUPPORTED_MEDIA_TYPE.value()), HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+      	     }
+        		fileName = fileName.replaceAll("[^a-zA-Z0-9.-]", "_");
+        	}
+        	
         	Workbook workbook = new XSSFWorkbook(file);
+        	 // Check for duplicates in the file
+            boolean isValid = validatorService.isExcelValid(file, workbook);
+
+            if (!isValid) {
+                // If the file contains duplicates, return the modified file for download
+                byte[] modifiedFile = validatorService.getModifiedExcelFile(file);
+                
+               /* return ResponseEntity.ok()
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=modified_file.xlsx")
+                        .body(modifiedFile);*/
+    	          return new ResponseEntity<>(new MockWrapper<>("Unsupported Media Type", null,HttpStatus.UNSUPPORTED_MEDIA_TYPE.value()), HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+            }
+            
+            
+            file.reset(); // Reset the input stream to process again
+            workbook = new XSSFWorkbook(file);
             Sheet sheet = workbook.getSheetAt(0); 
             
             Iterator<Row> rowIterator = sheet.iterator();
@@ -978,6 +1035,11 @@ public class TransferRequestImpl implements TransferRequestService {
                 
         		List<Object[]> results = transferReqRepository.findTransferApiDtoBySerialNumber(returnMockTransfer.getSerialNumber());
 
+        		 if (!CommonUtils.validateSerial(returnMockTransfer.getSerialNumber(),serialInfoRepository).isEmpty()) {
+      	            
+     	            return new ResponseEntity<>(new MockWrapper<FileNodesDto>("Serial Number is already processed!", fileNodesDto,HttpStatus.BAD_REQUEST.value()), HttpStatus.BAD_REQUEST);
+        		 }
+  		
         		TransferRequest transferRequest = null;
                 boolean hasError = false;//New Code 25022025
                 String errorMessage = null;  // New Code 25022025
@@ -1085,7 +1147,7 @@ public class TransferRequestImpl implements TransferRequestService {
             fileNodesDto.setNodes(processedNodes);
             fileNodesDto.setMessage("Data inserted successfully!");
             fileNodesDto.setProcessedCount(processedCount); // Set the count of processed records
-            fileNodesDto.setErrorCount(errorCount); // Set the count of records with errors
+            //fileNodesDto.setErrorCount(errorCount); // Set the count of records with errors
             
             // After processing, write the changes to the output file
             File outputFile = new File("processed_" + mockTransferFile.getOriginalFilename());
@@ -1110,12 +1172,23 @@ public class TransferRequestImpl implements TransferRequestService {
             fileOut.close();
             
             workbook.close();
-            
+            if (fileNodesDto == null || fileNodesDto.getNodes() == null || fileNodesDto.getNodes().isEmpty()) {
+            	responseEntity = new ResponseEntity<>(new MockWrapper<>("File content is empty or invalid", null, HttpStatus.UNPROCESSABLE_ENTITY.value()), HttpStatus.UNPROCESSABLE_ENTITY);
+            }else {
+            responseEntity =  new ResponseEntity<>(new MockWrapper<>("File generated successfully", fileNodesDto,HttpStatus.CREATED.value()), HttpStatus.CREATED);
+            }
         } 
         catch (IOException e) {
         	fileNodesDto.setMessage("Error occurred during file processing!");
+        	responseEntity = new ResponseEntity<>(new MockWrapper<>("Error occurred during file processing!", null,HttpStatus.INTERNAL_SERVER_ERROR.value()), HttpStatus.INTERNAL_SERVER_ERROR);
+
         }
-        return fileNodesDto;
+        catch (Exception e1) {
+        	fileNodesDto.setMessage("Error occurred during file processing!");
+        	responseEntity = new ResponseEntity<>(new MockWrapper<>("Error occurred during file processing!", null,HttpStatus.INTERNAL_SERVER_ERROR.value()), HttpStatus.INTERNAL_SERVER_ERROR);
+
+        }
+        return responseEntity;
 	}
 	
 	
@@ -1263,6 +1336,324 @@ public class TransferRequestImpl implements TransferRequestService {
     	TradeInDTO returnMockTransfer = (new TradeInDTO(mockTransferDto));
     	tetraService.addTradeIn(returnMockTransfer);
     }
-    
+ 
+    @Override
+    public ResponseEntity<MockWrapper<FileNodesDto>> mockTransferUpload(MultipartFile mockTransferFile) {
+        FileNodesDto fileNodesDto = new FileNodesDto();
+        ResponseEntity<MockWrapper<FileNodesDto>> responseEntity = null;
+        ExecutorService executor = Executors.newFixedThreadPool(4); // Adjust thread pool size as needed
+
+        try {
+            InputStream file = mockTransferFile.getInputStream();
+
+            // Basic file validation
+            if (mockTransferFile.isEmpty()) {
+                return new ResponseEntity<>(new MockWrapper<>("Invalid file content", null, HttpStatus.BAD_REQUEST.value()), HttpStatus.BAD_REQUEST);
+            }
+
+            if (mockTransferFile.getSize() > MAX_FILE_SIZE) {
+                return new ResponseEntity<>(new MockWrapper<>("Payload too large", null, HttpStatus.PAYLOAD_TOO_LARGE.value()), HttpStatus.PAYLOAD_TOO_LARGE);
+            }
+
+            if (!mockTransferFile.getOriginalFilename().toLowerCase().endsWith(".xlsx")) {
+                return new ResponseEntity<>(new MockWrapper<>("Unsupported Media Type", null, HttpStatus.UNSUPPORTED_MEDIA_TYPE.value()), HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+            }
+
+            Workbook workbook = new XSSFWorkbook(file);
+            Sheet sheet = workbook.getSheetAt(0);
+            Iterator<Row> rowIterator = sheet.iterator();
+
+            rowIterator.next(); // Skip header row
+
+            List<MockTransferDto> validRecords = new ArrayList<>();
+            List<MockTransferDto> duplicateRecords = new ArrayList<>();
+            Map<String, MockTransferDto> seenRecords = new HashMap<>();
+
+            int processedCount = 0;
+            //int errorCount = 0;
+
+            AtomicInteger errorCount = new AtomicInteger(0);  // Use AtomicInteger for thread-safe updates
+
+            List<Callable<Void>> tasks = new ArrayList<>();
+
+            while (rowIterator.hasNext()) {
+                Row row = rowIterator.next();
+                if (rowIsEmpty(row)) continue;
+
+                MockTransferDto returnMockTransfer = new MockTransferDto(row);
+
+                tasks.add(() -> {
+                    try {
+                        processRow(returnMockTransfer, seenRecords, validRecords, duplicateRecords);
+                        // Handle DB insert logic based on the results size condition
+                        List<Object[]> results = transferReqRepository.findTransferApiDtoBySerialNumber(returnMockTransfer.getSerialNumber());
+
+                        TransferRequest transferRequest = null;
+
+                        if (results.size() > 0) {
+                            for (Object[] result : results) {
+                                transferRequest = transferReqRepository.findByTransferRequestKey((Long) result[0]);
+                                //this.transferTransferReqFields(returnMockTransfer, transferRequest);
+                            }
+                        } else {
+                            transferRequest = null;
+                            //this.transferTransferReqFields(returnMockTransfer, transferRequest);
+                        }
+
+                        // After handling database logic, add to valid records
+                        if (transferRequest != null) {
+                            validRecords.add(returnMockTransfer);
+                        } else {
+                            //errorCount++; // Error occurred, increment error count
+                        	errorCount.incrementAndGet();
+                        }
+
+                    } catch (Exception e) {
+                        //errorCount++;
+                    	errorCount.incrementAndGet();
+                    }
+                    return null;
+                });
+            }
+
+            // Process rows in parallel
+            List<Future<Void>> futures = executor.invokeAll(tasks);
+            for (Future<Void> future : futures) {
+                future.get(); // Ensure the task is completed before moving on
+            }
+
+            executor.shutdown();
+
+            // Split the valid records into smaller files
+            int numFiles = (validRecords.size() + maxRecordsPerFile - 1) / maxRecordsPerFile;
+            List<File> outputFiles = splitRecordsIntoFiles(validRecords, duplicateRecords, numFiles);
+
+            // Generate duplicate file
+            if (!duplicateRecords.isEmpty()) {
+                generateDuplicateFile(duplicateRecords);
+            }
+
+            fileNodesDto.setNodes(validRecords);
+            fileNodesDto.setProcessedCount(processedCount);
+            fileNodesDto.setErrorCount(errorCount);
+            fileNodesDto.setMessage("File processed successfully");
+
+            // Return a response with the generated files (you can return file URLs or the files themselves)
+            responseEntity = new ResponseEntity<>(new MockWrapper<>("File generated successfully", fileNodesDto, HttpStatus.CREATED.value()), HttpStatus.CREATED);
+
+        } catch (IOException | InterruptedException | ExecutionException e) {
+            responseEntity = new ResponseEntity<>(new MockWrapper<>("Error occurred during file processing!", null, HttpStatus.INTERNAL_SERVER_ERROR.value()), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        return responseEntity;
+    }
+
+    private boolean rowIsEmpty(Row row) {
+        for (Cell cell : row) {
+            if (cell != null && cell.getCellType() != CellType.BLANK) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void processRow(MockTransferDto returnMockTransfer, Map<String, MockTransferDto> seenRecords,
+                            List<MockTransferDto> validRecords, List<MockTransferDto> duplicateRecords) {
+        String uniqueKey = returnMockTransfer.getSerialNumber(); // or other unique column
+        if (seenRecords.containsKey(uniqueKey)) {
+            duplicateRecords.add(returnMockTransfer); // Add to duplicates
+        } else {
+            seenRecords.put(uniqueKey, returnMockTransfer); // Store unique record
+            validRecords.add(returnMockTransfer);
+        }
+    }
+
+    private List<File> splitRecordsIntoFiles(List<MockTransferDto> validRecords, List<MockTransferDto> duplicateRecords, int numFiles) throws IOException {
+        List<File> files = new ArrayList<>();
+        int start = 0;
+        for (int i = 0; i < numFiles; i++) {
+            int end = Math.min(start + maxRecordsPerFile, validRecords.size());
+            List<MockTransferDto> fileRecords = validRecords.subList(start, end);
+            File file = generateFile(fileRecords, duplicateRecords);
+            files.add(file);
+            start = end;
+        }
+        return files;
+    }
+
+    //Without error code in file
+    private File generateFileOld(List<MockTransferDto> records) throws IOException {
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Records");
+
+        int rowIndex = 0;
+        for (MockTransferDto record : records) {
+            Row row = sheet.createRow(rowIndex++);
+            // Fill in the row with the record fields, adjust as per your DTO fields
+            row.createCell(0).setCellValue(record.getSerialNumber());
+            //row.createCell(1).setCellValue(record.getSomeOtherField());
+        }
+
+        File outputFile = File.createTempFile("processed_", ".xlsx");
+        try (FileOutputStream fileOut = new FileOutputStream(outputFile)) {
+            workbook.write(fileOut);
+        }
+
+        workbook.close();
+        return outputFile;
+    }
+
+    //Returning multiple records. In File there are two duplicat records but it is processing more than 2 records.
+    private File generateFileOld(List<MockTransferDto> records, List<MockTransferDto> duplicateRecords) throws IOException {
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Records");
+
+        // Create a cell style for red color (used for duplicates)
+        CellStyle redStyle = workbook.createCellStyle();	
+        Font redFont = workbook.createFont();
+        redFont.setColor(IndexedColors.RED.getIndex());
+        redStyle.setFont(redFont);
+        redStyle.setFillForegroundColor(IndexedColors.YELLOW.getIndex()); // Optional: Yellow fill for better visibility
+        redStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+        int rowIndex = 0;
+        for (MockTransferDto record : records) {
+            Row row = sheet.createRow(rowIndex++);
+
+            // Add data to the row (assuming your MockTransferDto has methods for all relevant data)
+            row.createCell(0).setCellValue(record.getSerialNumber());
+            // Add other record fields as needed, for example:
+            // row.createCell(1).setCellValue(record.getTmoSku());
+
+            // Check if the record is in the duplicate list
+            boolean isDuplicate = duplicateRecords.contains(record); // Modify this check if necessary based on your logic
+
+            if (isDuplicate) {
+                // Apply the red style to all cells in the row (or specific cells if preferred)
+                for (Cell cell : row) {
+                    cell.setCellStyle(redStyle);
+                }
+            }
+        }
+
+        // Save the workbook to a file
+        File outputFile = File.createTempFile("processed_"+System.currentTimeMillis(), ".xlsx");
+        try (FileOutputStream fileOut = new FileOutputStream(outputFile)) {
+            workbook.write(fileOut);
+        }
+
+        workbook.close();
+        return outputFile;
+    }
+
+    private File generateFile(List<MockTransferDto> records, List<MockTransferDto> duplicateRecords) throws IOException {
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Records");
+
+        // Create a cell style for red color (used for duplicates)
+        CellStyle redStyle = workbook.createCellStyle();
+        Font redFont = workbook.createFont();
+        redFont.setColor(IndexedColors.RED.getIndex());
+        redStyle.setFont(redFont);
+        redStyle.setFillForegroundColor(IndexedColors.YELLOW.getIndex()); // Optional: Yellow fill for better visibility
+        redStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+     // Create the header row
+        Row headerRow = sheet.createRow(0);  // Row index 0 for header
+        
+        String[] headers = { "Scenario", "expiryDate", "Action", "TMOsku", "serialNumber", "rmaNumber","Duplicate reason" };
+
+        // Create cells for each header
+        for (int i = 0; i < headers.length; i++) {
+            Cell cell = headerRow.createCell(i);
+            cell.setCellValue(headers[i]);
+            // Optionally, you can apply a style for the header (e.g., bold text)
+            CellStyle headerStyle = workbook.createCellStyle();
+            Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerStyle.setFont(headerFont);
+            cell.setCellStyle(headerStyle);
+        }
+        
+        int rowIndex = 1;
+
+        // Create a map to track the occurrence of serial numbers
+        Map<String, Integer> serialNumberCount = new HashMap<>();
+
+        for (MockTransferDto record : records) {
+            Row row = sheet.createRow(rowIndex++);
+
+            // Add data to the row (assuming your MockTransferDto has methods for all relevant data)
+            row.createCell(0).setCellValue(record.getScenario());
+            // Add other record fields as needed, for example:
+             row.createCell(1).setCellValue(record.getExpiryDate());
+             row.createCell(2).setCellValue(record.getAction());
+             row.createCell(3).setCellValue(record.getTmoSku());
+             row.createCell(4).setCellValue(record.getSerialNumber());
+             row.createCell(5).setCellValue(record.getRmaNumber());
+
+            // Check if this is the second occurrence of the serial number
+            int count = serialNumberCount.getOrDefault(record.getSerialNumber(), 0);
+            serialNumberCount.put(record.getSerialNumber(), count + 1);
+
+            // Apply red style if this is the second occurrence (duplicate)
+            if (count >= 1) {
+                for (Cell cell : row) {
+                    cell.setCellStyle(redStyle);
+                }
+            }
+        }
+
+        // Save the workbook to a file
+        File outputFile = File.createTempFile("processed_" + System.currentTimeMillis(), ".xlsx");
+        try (FileOutputStream fileOut = new FileOutputStream(outputFile)) {
+            workbook.write(fileOut);
+        }
+
+        workbook.close();
+        return outputFile;
+    }
+
+
+    private void generateDuplicateFile(List<MockTransferDto> duplicateRecords) throws IOException {
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Duplicates");
+
+        Row headerRow = sheet.createRow(0);  // Row index 0 for header
+        
+        String[] headers = { "Scenario", "expiryDate", "Action", "TMOsku", "serialNumber", "rmaNumber","Duplicate reason" };
+
+        // Create cells for each header
+        for (int i = 0; i < headers.length; i++) {
+            Cell cell = headerRow.createCell(i);
+            cell.setCellValue(headers[i]);
+            // Optionally, you can apply a style for the header (e.g., bold text)
+            CellStyle headerStyle = workbook.createCellStyle();
+            Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerStyle.setFont(headerFont);
+            cell.setCellStyle(headerStyle);
+        }
+        
+        int rowIndex = 1;
+        for (MockTransferDto record : duplicateRecords) {
+            Row row = sheet.createRow(rowIndex++);
+            row.createCell(0).setCellValue(record.getScenario());
+            row.createCell(1).setCellValue(record.getExpiryDate());
+            row.createCell(2).setCellValue(record.getAction());
+            row.createCell(3).setCellValue(record.getTmoSku());
+            row.createCell(4).setCellValue(record.getSerialNumber());
+            row.createCell(5).setCellValue(record.getRmaNumber());
+            row.createCell(6).setCellValue("Duplicate serial number"); // Example error message
+        }
+        //72405775
+
+        File duplicateFile = new File("duplicates"+System.currentTimeMillis()+".xlsx");
+        try (FileOutputStream fileOut = new FileOutputStream(duplicateFile)) {
+            workbook.write(fileOut);
+        }
+
+        workbook.close();
+    }
 	
 }
