@@ -950,8 +950,8 @@ public class TransferRequestImpl implements TransferRequestService {
         return transferReqRepository.findTransferApiDtoBySerialNumber(serialNumber);
     }
 
-	//@Override
-	public ResponseEntity<MockWrapper<FileNodesDto>> mockTransferUploadOld(MultipartFile mockTransferFile) {
+	@Override
+	public ResponseEntity<MockWrapper<FileNodesDto>> mockTransferUpload(MultipartFile mockTransferFile) {
 		FileNodesDto fileNodesDto = new FileNodesDto();
 		ResponseEntity<MockWrapper<FileNodesDto>> responseEntity = null;
         try {
@@ -960,57 +960,29 @@ public class TransferRequestImpl implements TransferRequestService {
         	if (mockTransferFile.isEmpty()) {
  	           
      	       
-   	            return new ResponseEntity<>(new MockWrapper<>("Invalid file content", null,HttpStatus.BAD_REQUEST.value()), HttpStatus.BAD_REQUEST);
+        		responseEntity =  new ResponseEntity<>(new MockWrapper<>("Invalid file content", null,HttpStatus.BAD_REQUEST.value()), HttpStatus.BAD_REQUEST);
     	     }
     		 
     		 if (mockTransferFile.getSize() > MAX_FILE_SIZE) {
     			   
-    	        return new ResponseEntity<>(new MockWrapper<>("Payload too large", null,HttpStatus.PAYLOAD_TOO_LARGE.value()), HttpStatus.PAYLOAD_TOO_LARGE);
+    			 responseEntity =  new ResponseEntity<>(new MockWrapper<>("Payload too large", null,HttpStatus.PAYLOAD_TOO_LARGE.value()), HttpStatus.PAYLOAD_TOO_LARGE);
 
     		 }
         	if (mockTransferFile != null && mockTransferFile.getBytes().length > 0) {
         		String fileName = mockTransferFile.getOriginalFilename();
         		if (fileName != null && !fileName.toLowerCase().endsWith(".xlsx")) {
     	            
-      	          return new ResponseEntity<>(new MockWrapper<>("Unsupported Media Type", null,HttpStatus.UNSUPPORTED_MEDIA_TYPE.value()), HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        			responseEntity =  new ResponseEntity<>(new MockWrapper<>("Unsupported Media Type", null,HttpStatus.UNSUPPORTED_MEDIA_TYPE.value()), HttpStatus.UNSUPPORTED_MEDIA_TYPE);
       	     }
         		fileName = fileName.replaceAll("[^a-zA-Z0-9.-]", "_");
         	}
         	
         	Workbook workbook = new XSSFWorkbook(file);
-        	 // Check for duplicates in the file
-            boolean isValid = validatorService.isExcelValid(file, workbook);
-
-            if (!isValid) {
-                // If the file contains duplicates, return the modified file for download
-                byte[] modifiedFile = validatorService.getModifiedExcelFile(file);
-                
-               /* return ResponseEntity.ok()
-                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=modified_file.xlsx")
-                        .body(modifiedFile);*/
-    	          return new ResponseEntity<>(new MockWrapper<>("Unsupported Media Type", null,HttpStatus.UNSUPPORTED_MEDIA_TYPE.value()), HttpStatus.UNSUPPORTED_MEDIA_TYPE);
-            }
-            
-            
-            file.reset(); // Reset the input stream to process again
-            workbook = new XSSFWorkbook(file);
             Sheet sheet = workbook.getSheetAt(0); 
-            
             Iterator<Row> rowIterator = sheet.iterator();
-            
-            
             rowIterator.next();
-            
             List<MockTransferDto> processedNodes = new ArrayList<>();
-            
-            //New code 
-            int processedCount = 0;
-            int errorCount = 0;
-           // new end
-            
-            // Initialize rowIndex to track the current row
-            int rowIndex = 1;  // Start at 1 (because 0 is the header row)
-            
+           
             while (rowIterator.hasNext()) {
                 Row row = rowIterator.next();
                 if (!rowIterator.hasNext()) {
@@ -1031,18 +1003,17 @@ public class TransferRequestImpl implements TransferRequestService {
                 }
                 
                 MockTransferDto returnMockTransfer = (new MockTransferDto(row));
-                //MockTransferDto returnMockTransfer = (new MockTransferDto(row, workbook, sheet,rowIndex));
+               
                 
         		List<Object[]> results = transferReqRepository.findTransferApiDtoBySerialNumber(returnMockTransfer.getSerialNumber());
 
         		 if (!CommonUtils.validateSerial(returnMockTransfer.getSerialNumber(),serialInfoRepository).isEmpty()) {
       	            
-     	            return new ResponseEntity<>(new MockWrapper<FileNodesDto>("Serial Number is already processed!", fileNodesDto,HttpStatus.BAD_REQUEST.value()), HttpStatus.BAD_REQUEST);
+        			 responseEntity =  new ResponseEntity<>(new MockWrapper<>("Serial Number is already processed!", fileNodesDto,HttpStatus.BAD_REQUEST.value()), HttpStatus.BAD_REQUEST);
+        		
         		 }
   		
         		TransferRequest transferRequest = null;
-                boolean hasError = false;//New Code 25022025
-                String errorMessage = null;  // New Code 25022025
                 
         		if (results.size()>0) {
         			for (Object[] result : results) {
@@ -1054,102 +1025,15 @@ public class TransferRequestImpl implements TransferRequestService {
                 	this.transferTransferReqFields(returnMockTransfer, transferRequest);
                 }                       
                 
-                // Here you check if there are any errors in the row.
-                // For example, check if the transferRequest is null, which would be an error.
-                if (transferRequest == null) {
-                    hasError = true;
-                    errorCount++;
-
-                    // Set the error message for the row
-                    errorMessage = "Error: Failed to insert record into the database";
-
-                    // Color the row red to indicate an error
-                    for (Cell cell : row) {
-                        if (cell != null) {
-                            CellStyle style = workbook.createCellStyle();
-                            style.setFillForegroundColor(IndexedColors.RED.getIndex());
-                            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-                            cell.setCellStyle(style);
-                        }
-                    }
-                }
                 
-                // Check for data type errors (string, number, date, etc.)
-                for (Cell cell : row) {
-                    // For example, if column 1 expects a string and the cell type is not string
-                    if (cell.getColumnIndex() == 0 && cell.getCellType() != CellType.STRING) { // Assume column 0 should be a string
-                        hasError = true;
-                        errorCount++;
-                        errorMessage = "Error: Expected string value but got " + cell.getCellType().name();
-                        break;
-                    }
-                    // Check if column 2 expects a number (e.g., column 1)
-                    if (cell.getColumnIndex() == 1 && cell.getCellType() != CellType.NUMERIC) { // Assume column 1 should be numeric
-                        hasError = true;
-                        errorCount++;
-                        errorMessage = "Error: Expected numeric value but got " + cell.getCellType().name();
-                        break;
-                    }
-                    // Check if column 3 expects a date (e.g., column 2)
-                    if (cell.getColumnIndex() == 2 && cell.getCellType() != CellType.NUMERIC) { // Assume column 2 should be a date
-                        hasError = true;
-                        errorCount++;
-                        errorMessage = "Error: Expected date value but got " + cell.getCellType().name();
-                        break;
-                    }
-                    
-                    // Check if column 3 expects a date (e.g., column 2)
-                    if (cell.getColumnIndex() == 3 && cell.getCellType() != CellType.STRING) { // Assume column 2 should be a date
-                        hasError = true;
-                        errorCount++;
-                        errorMessage = "Error: Expected date value but got " + cell.getCellType().name();
-                        break;
-                    }
-                    
-                    // Check if column 3 expects a date (e.g., column 2)
-                    if (cell.getColumnIndex() == 4 && cell.getCellType() != CellType.NUMERIC) { // Assume column 2 should be a date
-                        hasError = true;
-                        errorCount++;
-                        errorMessage = "Error: Expected date value but got " + cell.getCellType().name();
-                        break;
-                    }
-                }
 
-        		// processedNodes.add(returnMockTransfer);
-             // If there was an error, add the error message to the row in the "Error Message" column (last column)
-                // If there was an error, add the error message to the row in the "Error Message" column (last column)
-                if (hasError) {
-                    // Create a new cell for the error message if it doesn't exist
-                    Cell errorCell = row.createCell(row.getLastCellNum() != -1 ? row.getLastCellNum() : row.getPhysicalNumberOfCells());
-                    errorCell.setCellValue(errorMessage);  // Set the error message
-
-                    // Mark the row red
-                    for (Cell cell : row) {
-                        if (cell != null) {
-                            CellStyle style = workbook.createCellStyle();
-                            style.setFillForegroundColor(IndexedColors.RED.getIndex());
-                            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-                            cell.setCellStyle(style);
-                        }
-                    }
-                }
+        		processedNodes.add(returnMockTransfer);
+            
                 
-                
-                // If no error, process the row
-                if (!hasError) {
-                    processedNodes.add(returnMockTransfer);
-                    processedCount++;
-                }
-                
-                rowIndex++;
             }
             
             fileNodesDto.setNodes(processedNodes);
             fileNodesDto.setMessage("Data inserted successfully!");
-            fileNodesDto.setProcessedCount(processedCount); // Set the count of processed records
-            //fileNodesDto.setErrorCount(errorCount); // Set the count of records with errors
-            
-            // After processing, write the changes to the output file
             File outputFile = new File("processed_" + mockTransferFile.getOriginalFilename());
             FileOutputStream fileOut = new FileOutputStream(outputFile);
             workbook.write(fileOut);
@@ -1337,8 +1221,7 @@ public class TransferRequestImpl implements TransferRequestService {
     	tetraService.addTradeIn(returnMockTransfer);
     }
  
-    @Override
-    public ResponseEntity<MockWrapper<FileNodesDto>> mockTransferUpload(MultipartFile mockTransferFile) {
+    public ResponseEntity<MockWrapper<FileNodesDto>> mockTransferUploadTest(MultipartFile mockTransferFile) {
         FileNodesDto fileNodesDto = new FileNodesDto();
         ResponseEntity<MockWrapper<FileNodesDto>> responseEntity = null;
         ExecutorService executor = Executors.newFixedThreadPool(4); // Adjust thread pool size as needed

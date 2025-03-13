@@ -43,7 +43,7 @@ public class MockTransferDto {
     private String serialNumber;
     private String rmaNumber;
     
-    //Tetra
+    
     private String dispositionCode;
     private String make;
     private String model;
@@ -55,7 +55,7 @@ public class MockTransferDto {
     private String equipId;
     private String aStockReferenceSKU;
     
-    //Mock Response
+   
     private String orderNumber;
     private String orderType;
     
@@ -280,12 +280,10 @@ public class MockTransferDto {
 		
 		this.trackingNumber = CommonUtils.generateTrackingNumber();
 		this.scenario = row.getCell(0).getStringCellValue().isEmpty() ?"TMRASTR":row.getCell(0).getStringCellValue();
-		//this.expiryDate = (Date) row.getCell(1).getDateCellValue()!=null?(Date) row.getCell(1).getDateCellValue():DateUtils.futureDate((Date) row.getCell(1).getDateCellValue());
-		// Expiry Date - Handle Date Format Issues
         if (row.getCell(1).getCellType() == CellType.NUMERIC) {
             this.expiryDate = row.getCell(1).getDateCellValue();
         } else {
-            this.expiryDate = DateUtils.futureDate((Date) row.getCell(1).getDateCellValue()); // Default date if invalid
+            this.expiryDate = DateUtils.futureDate((Date) row.getCell(1).getDateCellValue()); 
         }
 		this.action = row.getCell(2).getStringCellValue().isEmpty()?"Create":row.getCell(2).getStringCellValue();
 		this.tmoSku = row.getCell(3).getStringCellValue().replace("'", "");
@@ -293,7 +291,7 @@ public class MockTransferDto {
 		this.rmaNumber = row.getCell(5).getStringCellValue().isEmpty()?"": row.getCell(5).getStringCellValue();
         this.transactionRefNo = CommonUtils.generateTransRefNumber();
         
-         //Tetra
+         
          this.dispositionCode = String.format("%.0f", row.getCell(6).getNumericCellValue());
          this.make = row.getCell(7).getStringCellValue();
          this.model = row.getCell(8).getStringCellValue();
@@ -322,39 +320,25 @@ public class MockTransferDto {
 	
 	public MockTransferDto(Row row, Workbook workbook, Sheet sheet, int rowIndex) {
 	    try {
-	        // Initialize the fields
 	        this.trackingNumber = CommonUtils.generateTrackingNumber();
-	        
-	        // Scenario - Check for empty string and use default
 	        this.scenario = row.getCell(0).getStringCellValue().isEmpty() ? "TMRASTR" : row.getCell(0).getStringCellValue();
-	        
-	        // Expiry Date - Handle Date Format Issues
 	        if (row.getCell(1).getCellType() == CellType.NUMERIC) {
 	            this.expiryDate = row.getCell(1).getDateCellValue();
 	        } else {
-	            this.expiryDate = DateUtils.futureDate(new Date()); // Default date if invalid
+	            this.expiryDate = DateUtils.futureDate(new Date()); 
 	        }
 	        
-	        // Action - Check for empty string and use default
 	        this.action = row.getCell(2).getStringCellValue().isEmpty() ? "Create" : row.getCell(2).getStringCellValue();
-	        
-	        // TMO SKU - Handle String Manipulation
 	        this.tmoSku = row.getCell(3).getStringCellValue().replace("'", "");
 	        
-	        // Serial Number - Handle Numeric and String Format
 	        if (row.getCell(4).getCellType() == CellType.NUMERIC) {
 	            this.serialNumber = String.format("%.0f", row.getCell(4).getNumericCellValue());
 	        } else {
 	            throw new IllegalArgumentException("Serial Number must be numeric");
 	        }
 	        
-	        // RMA Number - Handle Empty String
 	        this.rmaNumber = row.getCell(5).getStringCellValue().isEmpty() ? "" : row.getCell(5).getStringCellValue();
-	        
-	        // Transaction Reference - Generated automatically
 	        this.transactionRefNo = CommonUtils.generateTransRefNumber();
-
-	        // Handle Tetra-related fields
 	        this.dispositionCode = String.format("%.0f", row.getCell(6).getNumericCellValue());
 	        this.make = row.getCell(7).getStringCellValue();
 	        this.model = row.getCell(8).getStringCellValue();
@@ -365,11 +349,7 @@ public class MockTransferDto {
 	        this.skuDescription = row.getCell(13).getStringCellValue();
 	        this.equipId = String.format("%.0f", row.getCell(14).getNumericCellValue());
 	        this.aStockReferenceSKU = row.getCell(15).getStringCellValue().replace("'", "");
-
-	        // Order Number - Generated automatically
 	        this.orderNumber = CommonUtils.generateRandomNumber();
-	        
-	        // Order Type Logic
 	        this.orderType = "STOCreate";
 	        if (this.action.equalsIgnoreCase("Update")) {
 	            this.orderType = "STOUpdate";
@@ -380,18 +360,16 @@ public class MockTransferDto {
 	        }
 	        
 	    } catch (Exception e) {
-	        // If any error occurs, log the error and add error message to Excel
+	        
 	        handleError(row, workbook, sheet, rowIndex, e.getMessage());
 	    }
 	}
 
-	// Error handling method
+	
 	private void handleError(Row row, Workbook workbook, Sheet sheet, int rowIndex, String errorMessage) {
-	    // Create a new cell in the last column for the error message
 	    Cell errorCell = row.createCell(row.getLastCellNum() != -1 ? row.getLastCellNum() : row.getPhysicalNumberOfCells());
 	    errorCell.setCellValue("Error: " + errorMessage);
-
-	    // Mark the entire row in red to indicate an error
+	    
 	    for (Cell cell : row) {
 	        if (cell != null) {
 	            CellStyle style = workbook.createCellStyle();
@@ -400,11 +378,5 @@ public class MockTransferDto {
 	            cell.setCellStyle(style);
 	        }
 	    }
-
-	    // Optionally, log the error or collect it for further processing
-	    System.err.println("Error processing row " + rowIndex + ": " + errorMessage);
 	}
-
-	
-    
 }

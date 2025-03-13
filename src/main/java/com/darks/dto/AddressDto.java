@@ -1,5 +1,9 @@
 package com.darks.dto;
-
+/**
+ * @author Er. Arundeep Randev
+ * @since Jan-Mar 2025
+ *
+ */
 public class AddressDto {
 
     private String addressLine1;
