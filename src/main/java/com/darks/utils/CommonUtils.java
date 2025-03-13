@@ -167,7 +167,7 @@ public class CommonUtils {
     	
     	SerialInfo serialInfo = serialInfoRepository.findBySerialNumberOrderBySerialNumberDesc(serialNo);
 		String serialExists = "";
-    	if(serialInfo.getSerialNumber()!=null && !serialInfo.getSerialNumber().isEmpty()) {
+    	if(serialInfo != null && serialInfo.getSerialNumber()!=null && !serialInfo.getSerialNumber().isEmpty()) {
     		serialExists = serialInfo.getSerialNumber();
     	}
     	return serialExists;
